@@ -1,0 +1,13 @@
+mne
+mne-bids
+reservoirpy
+pandas
+numpy
+scipy
+librosa
+wordfreq
+tqdm
+scikit-learn
+matplotlib
+seaborn
+
