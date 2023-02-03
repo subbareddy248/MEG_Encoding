@@ -20,7 +20,7 @@ class Parameters(dict):
 
     def __str__(self):
         return "Parameters " + super(Parameters, self).__str__()
-    
+
     @property
     def sfreq(self):
         if "epochs" in self and "decim" in self.epochs:
@@ -37,4 +37,5 @@ P_ph_meg = Parameters(
     epochs=dict(decim=10, tmin=-0.2, tmax=0.6, baseline=(-0.2, 0.0)),
     sampling_rate=1000,
     threshold=20.0,
+    
 )

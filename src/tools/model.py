@@ -3,8 +3,6 @@ import reservoirpy as rpy
 from reservoirpy.nodes import Ridge, Reservoir, ESN
 from joblib import Parallel, delayed
 
-
-
 from multiprocessing import Manager
 
 import numpy as np
@@ -17,12 +15,11 @@ from reservoirpy.utils.model_utils import to_data_mapping
 from reservoirpy.utils.validation import is_mapping
 from reservoirpy.nodes.esn import _sort_and_unpack
 
-    
+
 class Seq2VecESN(ESN):
-    
     def __init__(self, **kwargs):
         super(Seq2VecESN, self).__init__(**kwargs)
-        
+
     def run(
         self,
         X=None,
@@ -39,21 +36,21 @@ class Seq2VecESN(ESN):
         self._initialize_on_sequence(X[0], forced_feedbacks[0])
 
         def run_fn(idx, x, forced_fb):
-            
+
             all_states = {}
             states = self.reservoir.run(x[self.reservoir.name])
-            final_state = np.atleast_2d(states[-1, :])    
-            
+            final_state = np.atleast_2d(states[-1, :])
+
             if return_states is not None and "reservoir" in return_states:
                 all_states["reservoir"] = states
-                
+
             y = self.readout(final_state)
-            
+
             all_states["readout"] = y
 
             return idx, all_states
 
-        backend = backend=self.backend
+        backend = backend = self.backend
 
         seq = progress(X, f"Running {self.name}")
 
@@ -89,7 +86,9 @@ class Seq2VecESN(ESN):
             # writes from multiple processes
             # if lock is not None:
             # with lock:  # pragma: no cover
-            self.readout.partial_fit(final_state, y[self.readout.name], lock=lock)
+            self.readout.partial_fit(
+                final_state, y[self.readout.name], lock=lock
+            )
             # else:
             #     self.readout.partial_fit(states, y[self.readout.name])
 
@@ -98,7 +97,9 @@ class Seq2VecESN(ESN):
         seq = progress(X, f"Running {self.name}")
         with self.with_state(from_state, reset=reset, stateful=stateful):
             with Parallel(n_jobs=self.workers, backend=backend) as parallel:
-                parallel(delayed(run_partial_fit_fn)(x, y) for x, y in zip(seq, Y))
+                parallel(
+                    delayed(run_partial_fit_fn)(x, y) for x, y in zip(seq, Y)
+                )
 
             if verbosity():  # pragma: no cover
                 print(f"Fitting node {self.name}...")
@@ -109,68 +110,64 @@ class Seq2VecESN(ESN):
 
 
 def MEG2phoneme_seq(params):
-    
-    P_res = params.reservoir
-    P_read = params.readout
-    
+
     reservoir = Reservoir(
-        P_res.units,
-        P_res.lr,
-        P_res.sr,
-        P_res.input_bias,
-        P_res.input_scaling,
-        P_res.bias_scaling,
+        params.units,
+        lr=params.lr,
+        sr=params.sr,
+        input_bias=params.input_bias,
+        input_scaling=params.input_scaling,
+        bias_scaling=params.bias_scaling,
+        seed=params.seed,
     )
-    
-    readout = Ridge(P_res.ridge)
-    
+
+    readout = Ridge(params.ridge)
+
     model = ESN(reservoir=reservoir, readout=readout)
 
     return model
 
 
 def MEG2phoneme_vec(params):
-    
-    P_res = params.reservoir
-    P_read = params.readout
-    
+
     reservoir = Reservoir(
-        P_res.units,
-        P_res.lr,
-        P_res.sr,
-        P_res.input_bias,
-        P_res.input_scaling,
-        P_res.bias_scaling,
+        params.units,
+        lr=params.lr,
+        sr=params.sr,
+        input_bias=params.input_bias,
+        input_scaling=params.input_scaling,
+        bias_scaling=params.bias_scaling,
+        seed=params.seed,
     )
-    
-    readout = Ridge(P_res.ridge)
+
+    readout = Ridge(params.ridge)
 
     model = Seq2VecESN(reservoir=reservoir, readout=readout)
-    
+
     return model
 
 
 if __name__ == "__main__":
-    
+
     rpy.set_seed(42)
     rpy.verbosity(0)
-    
+
     res = Reservoir(50)
     readout = Ridge()
-    
+
     model = Seq2VecESN(reservoir=res, readout=readout)
-    
+
     x = np.ones((10, 100, 5))
     y = np.ones((10, 1, 1))
-    
+
     model.fit(x, y)
-    
+
     y_pred = model.run(x)
-    
+
     assert len(y_pred) == 10
     assert y_pred[0].shape == (1, 1)
-    
+
     states = model.run(x, return_states=["reservoir", "readout"])
-    
+
     assert states["readout"][0].shape == (1, 1)
     assert states["reservoir"][0].shape == (100, 50)

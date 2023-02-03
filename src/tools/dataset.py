@@ -10,8 +10,10 @@ import mne_bids
 
 from joblib import Parallel, delayed
 from tqdm import tqdm
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import RobustScaler
 
-from utils import tqdm_joblib
+from .utils import tqdm_joblib
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +35,7 @@ def _concatenate(all_epochs):
 
 
 def _preprocess_annotations(raw, phoneme_list):
-    
+
     df_raw = raw.annotations.to_data_frame()
     df_raw["onset"] = raw.annotations.onset
     df_desc = pd.DataFrame(df_raw.description.apply(eval).to_list())
@@ -65,7 +67,9 @@ def _preprocess_annotations(raw, phoneme_list):
 
 
 def _segment(raw, meta, params):
-    events = np.c_[meta.onset * raw.info["sfreq"], np.ones((len(meta), 2))].astype(int)
+    events = np.c_[
+        meta.onset * raw.info["sfreq"], np.ones((len(meta), 2))
+    ].astype(int)
 
     epochs = mne.Epochs(
         raw,
@@ -98,12 +102,16 @@ def _load_raw(subject, session, task, root, params, phoneme_list, level):
     try:
         raw = mne_bids.read_raw_bids(bids_path, verbose=False)
     except FileNotFoundError:
-        logger.critical(f"File not found: sub{subject}-sess{session}-task{task}")
+        logger.critical(
+            f"File not found: sub{subject}-sess{session}-task{task}"
+        )
         return
 
     raw = raw.pick_types(meg=True, misc=False, eeg=False, eog=False, ecg=False)
 
-    raw.load_data().filter(params.bandpass.low, params.bandpass.high, n_jobs=1, verbose=False)
+    raw.load_data().filter(
+        params.bandpass.low, params.bandpass.high, n_jobs=1, verbose=False
+    )
 
     annotations = _preprocess_annotations(raw, phoneme_list)
 
@@ -125,36 +133,39 @@ def _load_raw(subject, session, task, root, params, phoneme_list, level):
         ).astype(int)
         ph_epochs.metadata["task"] = task
         ph_epochs.metadata["session"] = session
-        
+
     return w_epochs, ph_epochs
-    
+
 
 def get_epochs(subject, root, params, level="all"):
-    
+
     if Path(root).exists() and Path(root, "phoneme_info.csv").exists():
         phoneme_info = pd.read_csv(Path(root) / "phoneme_info.csv")
         phoneme_list = phoneme_info.phoneme.tolist()
     else:
         raise FileNotFoundError("phoneme_info.csv")
-    
+
     sessions_tasks = list(itertools.product(range(1), range(4)))
 
-    with tqdm_joblib(tqdm(desc="Loading MEG", total=len(sessions_tasks))) as progress_bar:
+    with tqdm_joblib(
+        tqdm(desc="Loading MEG", total=len(sessions_tasks))
+    ):
         epochs = Parallel(n_jobs=-1, backend="loky")(
             _load_raw(
-                subject, 
+                subject,
                 session,
                 task,
                 root,
                 params,
                 phoneme_list,
                 level,
-            ) 
+            )
             for session, task in sessions_tasks
         )
-    
-    all_w_epochs, all_ph_epochs = [e[0] for e in epochs if e[0] is not None], [e[1] for e in epochs if e[1] is not None]
-            
+
+    all_w_epochs = [e[0] for e in epochs if e[0] is not None]
+    all_ph_epochs = [e[1] for e in epochs if e[1] is not None]
+
     if len(all_ph_epochs) == 0 and len(all_w_epochs) == 0:
         raise FileNotFoundError(f"No file found at root {root}")
 
@@ -165,13 +176,13 @@ def get_epochs(subject, root, params, level="all"):
     ph_epochs = None
     if len(all_ph_epochs) > 0:
         ph_epochs = _concatenate(all_ph_epochs)
-        
-    logger.info(f"Epochs created.")
+
+    logger.info("Epochs created.")
 
     return w_epochs, ph_epochs
 
 
-def as_meg_phoneme(subject, root, params, tile_targets=False):
+def as_meg_phoneme(subject, root, params):
 
     _, epochs = get_epochs(subject, root=root, level="phoneme", params=params)
 
@@ -202,13 +213,10 @@ def as_meg_phoneme(subject, root, params, tile_targets=False):
     phonemes = meta.phoneme_code.values
     phonemes = np.delete(phonemes, lonely_index, axis=0)
 
-    if tile_targets:
-        y = np.tile(phonemes, (n_timepoints, 1)).T[:, :, np.newaxis].astype(int)
-    else:
-        y = phonemes.reshape(n_epochs, 1).astype(int)
-    
+    y = phonemes.reshape(n_epochs, 1, 1).astype(int)
+
     logger.info(f"Data dimensions:\n\tX : {X.shape}\n\ty : {y.shape}")
-    
+
     assert X.shape[0] == y.shape[0]
 
     return X, y
@@ -226,6 +234,33 @@ def as_word_meg(subject, root):
     raise NotImplementedError()
 
 
+def split(X, y, params):
+
+    X_train, X_test, y_train, y_test = train_test_split(
+        X,
+        y,
+        test_size=params.test_size,
+        random_state=params.seed,
+        stratify=y.flatten(),
+    )
+
+    n_train, time_length, n_channels = X_train.shape
+    n_test = X_test.shape[0]
+
+    robust_scaler = RobustScaler(quantile_range=params.quantile_range)
+
+    X_train = robust_scaler.fit_transform(X_train.reshape(-1, n_channels))
+    X_test = robust_scaler.transform(X_test.reshape(-1, n_channels))
+
+    th = params.threshold
+    X_train = np.clip(X_train, -th, th).reshape(
+        n_train, time_length, n_channels
+    )
+    X_test = np.clip(X_test, -th, th).reshape(n_test, time_length, n_channels)
+
+    return X_train, X_test, y_train, y_test
+
+
 def as_task_data(subject, task, root, params, **kwargs):
 
     task_table = {
@@ -238,28 +273,9 @@ def as_task_data(subject, task, root, params, **kwargs):
     if task in task_table:
         logger.info(f"Loading data for task: {task}")
     else:
-        raise KeyError(f"{task} is not a task."
-                       f"\nAvailable tasks are '{' '.join(list(task_table.keys()))}'.")
+        raise KeyError(
+            f"{task} is not a task."
+            f"\nAvailable tasks are '{' '.join(list(task_table.keys()))}'."
+        )
 
     return task_table[task](subject, root, params, **kwargs)
-
-
-if __name__ == "__main__":
-
-    from parameters import P    
-    
-    logging.basicConfig(level=logging.INFO)
-        
-    task = "MEG->phoneme"
-    
-    task_directory = Path("./data/formatted", task)
-    task_directory.mkdir(parents=True, exist_ok=True)
-    
-    X, y = as_task_data("12", task=task, root="./data/MASC-MEG", params=P)
-
-    np.save(task_directory / "X.npy", X)
-    np.save(task_directory / "y.npy", y)
-    
-    X, y = as_task_data("12", task=task, root="./data/MASC-MEG", params=P, tile_targets=True)
-    
-    np.save(task_directory / "y_tiled.npy", y)
