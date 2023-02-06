@@ -8,11 +8,8 @@ from multiprocessing import Manager
 import numpy as np
 from joblib import Parallel, delayed
 
-from reservoirpy._base import _Node, call
 from reservoirpy.utils import progress, verbosity
-from reservoirpy.utils.graphflow import dispatch
 from reservoirpy.utils.model_utils import to_data_mapping
-from reservoirpy.utils.validation import is_mapping
 from reservoirpy.nodes.esn import _sort_and_unpack
 
 
@@ -63,7 +60,7 @@ class Seq2VecESN(ESN):
 
         return _sort_and_unpack(states, return_states=return_states)
 
-    def fit(self, X=None, Y=None, from_state=None, stateful=True, reset=False):
+    def fit(self, X=None, Y=None, from_state=None, stateful=True, reset=False, **kwargs):
 
         X, Y = to_data_mapping(self, X, Y)
         self._initialize_on_sequence(X[0], Y[0])
@@ -121,7 +118,7 @@ def MEG2phoneme_seq(params):
         seed=params.seed,
     )
 
-    readout = Ridge(params.ridge)
+    readout = Ridge(ridge=params.ridge)
 
     model = ESN(reservoir=reservoir, readout=readout)
 
@@ -140,7 +137,7 @@ def MEG2phoneme_vec(params):
         seed=params.seed,
     )
 
-    readout = Ridge(params.ridge)
+    readout = Ridge(ridge=params.ridge)
 
     model = Seq2VecESN(reservoir=reservoir, readout=readout)
 
