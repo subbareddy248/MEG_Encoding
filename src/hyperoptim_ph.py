@@ -1,10 +1,12 @@
 import argparse
+import logging
 
 from pathlib import Path
 
 import optuna
 import numpy as np
 import pandas as pd
+import joblib
 import reservoirpy as rpy
 
 from sklearn.metrics import top_k_accuracy_score
@@ -14,6 +16,7 @@ from sklearn.preprocessing import OneHotEncoder
 from decode_ph import train_phoneme_decoder
 from tools.parameters import Parameters
 
+logger = logging.getLoger(__name__)
 
 parser = argparse.ArgumentParser()
 
@@ -30,6 +33,7 @@ parser.add_argument("task", type=str, help="Task to run")
 SEED = 864351
 RND = np.random.default_rng(SEED)
 DATA_ROOT = Path("data/formatted/")
+REPORT_ROOT = Path("reports/")
 PHONEME_INFO = Path("data/MASC-MEG/phoneme_info.csv")
 VALIDATION_SIZE = 0.2
 
@@ -146,18 +150,35 @@ def optim_MEG2phoneme_vec(args):
         return np.mean(mean_top1)
     
     if args.dryrun:
-        print(objective(optuna.trial.FixedTrial({"spectral_radius": 0.9, "leaking_rate": 0.5, "input_scaling": 1.0, "ridge": 1e-8})))
+        logger.info(objective(optuna.trial.FixedTrial({"spectral_radius": 0.9, "leaking_rate": 0.5, "input_scaling": 1.0, "ridge": 1e-8})))F
     else:   
-        print(f"Starting study: {study_name}")
+        logger.info(f"Starting study: {study_name}")
+        
+        sampler_path = REPORT_ROOT / ("sampler" + study_name + ".pkl")
+        if sampler_path.is_file():
+            with open(REPORT_ROOT / ("sampler" + study_name + ".pkl"), "w+") as fp:
+                sampler = joblib.load(fp)
+            logger.info("Found a saved Sampler instance for this study.")
+        else:
+            logger.info("No existing sampler available for this study. Creating a new one.")
+            sampler = optuna.samplers.RandomSampler(seed=SEED)
+        
         study = optuna.create_study(
             study_name=study_name,
-            sampler=optuna.samplers.RandomSampler(seed=SEED),
+            sampler=sampler,
             direction="maximize",
             storage="mysql://" + mysql_url,
             load_if_exists=True,
         )
-        print("Running...")
-        return study.optimize(objective, n_trials=num_trials, show_progress_bar=True)
+        try:
+            logger.info("Running...")
+            return study.optimize(objective, n_trials=num_trials, show_progress_bar=True)
+        except KeyboardInterrupt as e:
+            study.trials_dataframe().to_csv(REPORT_ROOT / ("optim" + study_name + ".csv"))
+            with open(REPORT_ROOT / ("sampler" + study_name + ".pkl"), "w+") as fp:
+                joblib.dump(sampler, fp)
+        finally:
+            raise KeyboardInterrupt
     
     
 def optim_MEG2phoneme_seq(args):
@@ -230,18 +251,36 @@ def optim_MEG2phoneme_seq(args):
         return np.mean(mean_top1)
     
     if args.dryrun:
-        print(objective(optuna.trial.FixedTrial({"spectral_radius": 0.9, "leaking_rate": 0.5, "input_scaling": 1.0, "ridge": 1e-8})))
-    else:   
-        print(f"Starting study: {study_name}")
+        logger.info(objective(optuna.trial.FixedTrial({"spectral_radius": 0.9, "leaking_rate": 0.5, "input_scaling": 1.0, "ridge": 1e-8})))
+    else:
+        logger.info(f"Starting study: {study_name}")
+        
+        sampler_path = REPORT_ROOT / ("sampler" + study_name + ".pkl")
+        if sampler_path.is_file():
+            with open(REPORT_ROOT / ("sampler" + study_name + ".pkl"), "w+") as fp:
+                sampler = joblib.load(fp)
+            logger.info("Found a saved Sampler instance for this study.")
+        else:
+            logger.info("No existing sampler available for this study. Creating a new one.")
+            sampler = optuna.samplers.RandomSampler(seed=SEED)
+        
         study = optuna.create_study(
             study_name=study_name,
-            sampler=optuna.samplers.RandomSampler(seed=SEED),
+            sampler=sampler,
             direction="maximize",
             storage="mysql://" + mysql_url,
             load_if_exists=True,
         )
-        print("Running...")
-        return study.optimize(objective, n_trials=num_trials, show_progress_bar=True)
+        try:
+            logger.info("Running...")
+            return study.optimize(objective, n_trials=num_trials, show_progress_bar=True)
+        except KeyboardInterrupt as e:
+            logger.warning(f"Interrutping study. Saving sampler and trials to {REPORT_ROOT}")
+            study.trials_dataframe().to_csv(REPORT_ROOT / ("optim" + study_name + ".csv"))
+            with open(REPORT_ROOT / ("sampler" + study_name + ".pkl"), "w+") as fp:
+                joblib.dump(sampler, fp)
+        finally:
+            raise KeyboardInterrupt
 
 
 if __name__ == "__main__":
@@ -257,4 +296,4 @@ if __name__ == "__main__":
     
     tasks_table[args.task](args)
 
-    print("Done")
+    logger.info("Done")

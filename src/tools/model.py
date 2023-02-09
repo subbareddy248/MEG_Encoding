@@ -144,6 +144,22 @@ def MEG2phoneme_vec(params):
     return model
 
 
+def phoneme2MEG(params):
+
+    reservoir = Reservoir(
+        params.units,
+        lr=params.lr,
+        sr=params.sr,
+        input_bias=params.input_bias,
+        input_scaling=params.input_scaling,
+        bias_scaling=params.bias_scaling,
+        seed=params.seed,
+    )
+
+    readout = Ridge(ridge=params.ridge)
+
+
+
 if __name__ == "__main__":
 
     rpy.set_seed(42)
