@@ -25,7 +25,7 @@ parser.add_argument(
     "--task",
     "-t",
     type=str,
-    help="Either 'MEG->phoneme', 'MEG->word', 'word->'MEG', 'phoneme->MEG'",
+    help="Either 'MEG->phoneme', 'sound->MEG'",
 )
 parser.add_argument(
     "--postprocess",

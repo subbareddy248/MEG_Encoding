@@ -1,3 +1,13 @@
+from pathlib import Path
+import yaml
+
+
+def load_parameters(param_path):
+    with open(param_path, "r") as fp:
+        params = Parameters(**yaml.load(fp, yaml.Loader))
+    return params
+
+
 class Parameters(dict):
     def __getattr__(self, attr):
         try:
@@ -28,6 +38,10 @@ class Parameters(dict):
         else:
             return self.sampling_rate
 
+    def save(self, path):
+        with open(path, "w+") as fp:
+            yaml.dump(dict(**self), fp)
+
 
 P_ph_meg = Parameters(
     bandpass=dict(high=30.0, low=0.5),
@@ -37,5 +51,5 @@ P_ph_meg = Parameters(
     epochs=dict(decim=10, tmin=-0.2, tmax=0.6, baseline=(-0.2, 0.0)),
     sampling_rate=1000,
     threshold=20.0,
-    
+
 )

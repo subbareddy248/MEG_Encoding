@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pandas as pd
 import numpy as np
+import librosa as lbr
 import mne
 import mne_bids
 
@@ -110,7 +111,7 @@ def _load_raw(subject, session, task, root, params, phoneme_list, level):
     raw = raw.pick_types(meg=True, misc=False, eeg=False, eog=False, ecg=False)
 
     raw.load_data().filter(
-        params.bandpass.low, params.bandpass.high, n_jobs=1, verbose=False
+        params.meg.bandpass.low, params.meg.bandpass.high, n_jobs=1, verbose=False
     )
 
     annotations = _preprocess_annotations(raw, phoneme_list)
@@ -182,6 +183,98 @@ def get_epochs(subject, root, params, level="all"):
     return w_epochs, ph_epochs
 
 
+def get_phoneme_sounds(root, meta, params):
+    # start column in metadata is the phoneme/word onset
+    # in the sound (one of the 4 audio bouts)
+    from functools import partial
+
+    import librosa as lbr
+
+    from tqdm import tqdm
+
+    params.sound_sfreq = 22050
+
+    # Params from Gwilliams, King, Poeppel
+    # "Neural dynamics of phoneme sequences reveal
+    # position-invariant code for content and order"
+
+    params.hop_length = 128
+    params.n_fft = 2048
+    params.n_mels = 208
+    params.window = "hamming"
+
+    meta["l_story"] = meta.story.str.lower()
+    meta.sound_id = meta.sound_id.astype(int)
+
+    def segment_audio(meta_row, x, sfreq, audio_list):
+        onset = meta_row.start
+        start = round((onset - np.abs(params.epochs.tmin)) * sfreq)
+        end = start + params.epoch_length
+
+        assert end - start == params.epoch_length, f"{end - start} != {params.epoch_length}"
+
+        if start < 0:
+            # 0-pad
+            x_ = x[0:end]
+            y = np.pad(x_, ((-start, 0), (0, 0)), constant_values=(0, 0))
+        elif end > x.shape[0]:
+            x_ = x[start:]
+            y = np.pad(x_, ((0, end - x.shape[0]), (0, 0)), constant_values=(0, 0))
+        else:
+            y = x[start:end]
+
+        # meta_row.name is the epoch index
+        # should not mix anything
+        audio_list[meta_row.name] = y
+
+    audio_files = Path(root) / "stimuli" / "audio"
+    audios = [None] * len(meta)
+    for file in tqdm(list(audio_files.glob("*.wav"))):
+        f = file.stem
+        story = "_".join(f.split("_")[:-1])
+        if len(story) < 1:
+            logger.warning("Wrong filename format:", file)
+            continue
+
+        sound_id = int(f.split("_")[-1])
+        meta_story = meta[meta.l_story.str.contains(story.lower())]
+        meta_sound = meta_story.query("sound_id==@sound_id")
+
+        sfreq = None
+        y, sfreq = lbr.load(file, sr=sfreq)
+        mel = lbr.feature.melspectrogram(
+            y=y,
+            sr=sfreq,
+            n_fft=params.n_fft,
+            hop_length=params.hop_length,
+            window=params.window,
+            n_mels=params.n_mels,
+            )
+
+        mel = lbr.resample(
+            mel,
+            orig_sr=params.sound_sfreq // params.hop_length,
+            target_sr=params.raw_sfreq // params.epochs.decim,
+            axis=1,
+            res_type="soxr_vhq"
+            )
+
+        mel = np.clip(mel, 0, None)  # remove very few negative amplitude values
+        mel = np.log10(1000 * mel + 1.0)  # rescale (approx between 0 ~ 6)
+
+        meta_sound.apply(
+            partial(
+                segment_audio,
+                x=mel.T,
+                sfreq=params.raw_sfreq // params.epochs.decim,
+                audio_list=audios
+                ),
+            axis=1
+            )
+
+    return np.r_[audios]
+
+
 def as_meg_phoneme(subject, root, params):
 
     _, epochs = get_epochs(subject, root=root, level="phoneme", params=params)
@@ -222,16 +315,8 @@ def as_meg_phoneme(subject, root, params):
     return X, y
 
 
-def as_meg_word(subject, root):
-    raise NotImplementedError()
-
-
-def as_phoneme_meg(subject, root):
-    raise NotImplementedError()
-
-
-def as_word_meg(subject, root):
-    raise NotImplementedError()
+def as_sound_meg(subject, root, params):
+    ...
 
 
 def split(X, y, params):
@@ -265,9 +350,7 @@ def as_task_data(subject, task, root, params, **kwargs):
 
     task_table = {
         "MEG->phoneme": as_meg_phoneme,
-        "MEG->word": as_meg_word,
-        "phoneme->MEG": as_phoneme_meg,
-        "word->MEG": as_word_meg,
+        "sound->MEG": as_sound_meg,
     }
 
     if task in task_table:
