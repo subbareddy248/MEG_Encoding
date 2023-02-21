@@ -45,7 +45,7 @@ def _preprocess_annotations(raw, phoneme_list):
 
     df[["index", "subject"]] = df[["index", "subject"]].fillna(method="ffill")
 
-    df_ = df.copy().query("kind != 'sound'")
+    df_ = df.query("kind != 'sound'").copy()
 
     df_["word"] = df_["word"].shift(-1)
     df_filled = df_["word"].fillna(method="ffill")
@@ -83,7 +83,7 @@ def _load_raw(subject, session, task, root, params, phoneme_list, level):
         raw = mne_bids.read_raw_bids(bids_path, verbose=False)
     except FileNotFoundError:
         logger.critical(
-            f"File not found: sub{subject}-sess{session}-task{task}"
+            f"File not found: sub{subject}-sess{session}-task{task}. Skipping."
         )
         return
 
@@ -100,6 +100,10 @@ def _load_raw(subject, session, task, root, params, phoneme_list, level):
         events = np.c_[
             meta.onset * raw.info["sfreq"], np.ones((len(meta), 2))
         ].astype(int)
+        
+        baseline = params.epochs.baseline
+        if hasattr(baseline, "__iter__"):
+            baseline = tuple(baseline)
 
         epochs = mne.Epochs(
             raw,
@@ -107,7 +111,7 @@ def _load_raw(subject, session, task, root, params, phoneme_list, level):
             tmin=params.epochs.tmin,
             tmax=params.epochs.tmax,
             decim=params.epochs.decim,
-            baseline=tuple(params.epochs.baseline),
+            baseline=baseline,
             metadata=meta,
             preload=True,
             event_repeated="drop",
@@ -119,6 +123,20 @@ def _load_raw(subject, session, task, root, params, phoneme_list, level):
         ).astype(int)
         epochs.metadata["task"] = task
         epochs.metadata["session"] = session
+
+        if params.meg.scaler == "const":
+            epochs = rescale_before(epochs, params)
+
+        m = epochs.metadata
+        label = (
+                "t"
+                + m.task.astype(str)
+                + "_s"
+                + m.session.astype(str)
+                + "_h"
+                + m.half.astype(str)
+        )
+        epochs.metadata["label"] = label
     else:
         raise ValueError(f"Level must be either 'phoneme' or 'word', not {level}")
 
@@ -172,6 +190,20 @@ def rescale(X_train, X_test, params):
     return X_train.reshape(N_train, T, C), X_test.reshape(N_test, T, C)
 
 
+def rescale_before(epochs, params):
+    # as in JR King code
+    last_quant = int(params.meg.scaler_params.quantile_range[1])
+    th = np.percentile(np.abs(epochs._data), last_quant)
+    epochs._data[:] = np.clip(epochs._data, -th, th)
+    logger.info(f"Clipped MEG data outside {-th, th}.")
+    epochs.apply_baseline()
+    th = np.percentile(np.abs(epochs._data), last_quant)
+    epochs._data[:] = np.clip(epochs._data, -th, th)
+    logger.info(f"Clipped MEG data outside {-th, th}.")
+    epochs.apply_baseline()
+    return epochs
+
+
 def save_epochs(data, output, name, suffix="", info=None, meta=None):
 
     Path(output).mkdir(parents=True, exist_ok=True)
@@ -185,11 +217,11 @@ def save_epochs(data, output, name, suffix="", info=None, meta=None):
     if meta is not None:
         meta_path = Path(output) / f"meta-{name}.csv"
         meta.to_csv(meta_path, index=False)
-        logger.info(f"Saved metadata to {meta_path}.")
+        logger.info(f"Saved Epochs.metadata to {meta_path}.")
 
     data_path = str(Path(output) / f"epochs-{name+suffix}.npy")
     np.save(data_path, data)
-    logger.info(f"Saved MEG epochs data to {data_path}.")
+    logger.info(f"Saved Epochs.data to {data_path}.")
 
 
 def preprocess_epochs(root, output, data_id, subject, level, params_path, split):
@@ -202,7 +234,7 @@ def preprocess_epochs(root, output, data_id, subject, level, params_path, split)
     else:
         raise FileNotFoundError("phoneme_info.csv")
 
-    sessions_tasks = list(itertools.product(range(1), range(4)))
+    sessions_tasks = list(itertools.product(range(2), range(4)))
 
     epochs = []
     for session, task in tqdm(sessions_tasks, "Segmenting MEG"):
@@ -216,37 +248,33 @@ def preprocess_epochs(root, output, data_id, subject, level, params_path, split)
             level,
         )
 
-        epochs.append(epoch)
+        if epoch is not None:
+            epochs.append(epoch)
 
     epochs = mne.concatenate_epochs(epochs)
-    m = epochs.metadata
-    label = (
-            "t"
-            + m.task.astype(str)
-            + "_s"
-            + m.session.astype(str)
-            + "_h"
-            + m.half.astype(str)
-    )
-    epochs.metadata["label"] = label
 
     logger.info("Epochs created.")
 
     X = epochs.get_data()
-    X = np.swapaxes(X, 1, 2) # N, time, channels
+
+    X = np.swapaxes(X, 1, 2)  # N, time, channels
     metadata = epochs.metadata
     info = epochs.info
-
+    
     del epochs
     gc.collect()
 
     if split:
         X_train, X_test, meta = train_test_split(X, metadata, params)
-
-        del X
+        
+        del X  # too big for my computer (decim=4)
         gc.collect()
-
-        X_train, X_test = rescale(X_train, X_test, params)
+	
+        if params.meg.scaler == "const":
+            coef = params.meg.scaler_params.coef
+            X_train, X_test = X_train * coef, X_test * coef
+        else:
+            X_train, X_test = rescale(X_train, X_test, params)
 
         save_epochs(X_train, output, data_id, suffix=".train", info=info, meta=meta)
         save_epochs(X_test, output, data_id, suffix=".test")
@@ -363,7 +391,7 @@ def preprocess_audio(root, output, data_id, meta, params_path, split):
         )
 
     audios = np.r_[audios]
-    
+
     logger.info(f"Audios segments shape: {audios.shape}")
 
     if split:

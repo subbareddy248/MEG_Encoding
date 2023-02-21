@@ -1,0 +1,32 @@
+meg:
+  sfreq: 1000
+  bandpass:
+    high: 30.0
+    low: 0.5
+  scaler: RobustScaler
+  scaler_params:
+    quantile_range: [25.0, 75.0]
+  clip: [-20, 20]
+epochs:
+  sfreq: 100 # computed from epochs.decim and meg.sfreq
+  decim: 10
+  tmin: -0.2
+  tmax: 0.6
+  baseline: ~
+  epoch_length: 81
+sound:
+  sfreq: 22050
+  # Params from Gwilliams, King, Poeppel
+  # "Neural dynamics of phoneme sequences reveal
+  # position-invariant code for content and order"
+  mel_spec:
+    hop_length: 128
+    n_fft: 2048
+    n_mels: 208
+    window: hamming
+    resampling_type: soxr_vhq
+    clip: [0, ~]
+    scaling: 1000
+test_story: lw1
+seed: 54321
+

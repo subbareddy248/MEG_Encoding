@@ -3,7 +3,7 @@ meg:
   bandpass:
     high: 30.0
     low: 0.5
-  sklearn_scaler: RobustScaler
+  scaler: RobustScaler
   scaler_params:
     quantile_range: [25.0, 75.0]
   clip: [-20, 20]
