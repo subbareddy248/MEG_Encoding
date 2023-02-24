@@ -2,6 +2,7 @@ from pathlib import Path
 import numpy as np
 
 from tqdm import tqdm
+from statsmodels.stats.multitest import fdrcorrection
 
 REPORTS = Path("reports")
 
@@ -27,8 +28,6 @@ def FDR(vector, q, do_correction = False):
     return thresh_vector, thresh
 
 
-sub_data = "sub_space_data/"
-
 all_subjects = [str(i) for i in range(1, 9)]
 all_features = ["bert", "glove", "postag", "deptag", "cm"]
 
@@ -44,8 +43,8 @@ for sub in all_subjects:
         uncorrected_sig = np.load(sig_file)
         all_uncorrected_sig.append(uncorrected_sig)
         
-q = 0.05
-all_corrected_sig, _ = FDR(np.hstack(all_uncorrected_sig), q)
+q = 1/5000
+rejected, corrected = fdrcorrection(np.hstack(all_uncorrected_sig), q)
 
 last_end = 0
 ind = 0
@@ -54,8 +53,11 @@ for sub in all_subjects:
         if (sub, feat) in missing_sig:
             continue
         corrected_file = REPORTS / f"sub-{sub}" / f"{feat}_s0_predictions" / "0_sig_group_corrected.npy" 
-        corrected_sig = all_corrected_sig[last_end:last_end + all_uncorrected_sig[ind].shape[0]]
+        rejected_file = REPORTS / f"sub-{sub}" / f"{feat}_s0_predictions" / "0_h0_group_corrected.npy" 
+        corrected_sig = corrected[last_end:last_end + all_uncorrected_sig[ind].shape[0]]
+        rejected_h0 = rejected[last_end:last_end + all_uncorrected_sig[ind].shape[0]]
         np.save(corrected_file, corrected_sig)
+        np.save(rejected_file, rejected_h0)
         last_end += all_uncorrected_sig[ind].shape[0]
         ind += 1
     
