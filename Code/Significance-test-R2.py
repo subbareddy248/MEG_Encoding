@@ -73,7 +73,7 @@ if __name__ == "__main__":
 
     REPORTS = Path("/beegfs/ntrouvai/MEG-analysis/reports/")
 
-    all_features = ["bert", "glove", "postag", "cm", "deptag"]
+    all_features = ["bert", "glove", "postag", "cm", "deptags"]
     
     features = all_features[int(args.feat) // 8]
     subject = str(int(args.subject) % 8 + 1)
