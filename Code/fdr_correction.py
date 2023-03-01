@@ -6,12 +6,13 @@ REPORTS = Path("reports")
 
 all_subjects = [str(i) for i in range(1, 9)]
 all_single = ["bert", "glove", "postag", "deptags", "cm"]
-all_pairs = [
-        ("bert", "glove"),
-        ("postag", "deptags"),
-        ("postag", "cm"),
-        ("deptags", "cm"),
-    ]
+#all_pairs = [
+#        ("bert", "glove"),
+#        ("postag", "deptags"),
+#        ("postag", "cm"),
+#        ("deptags", "cm"),
+#    ]
+all_pairs = []
 
 all_features = all_single + all_pairs
 
