@@ -26,6 +26,7 @@ parser.add_argument("-i", "--id", type=str, help="Index (sub=id%8+1, feat=id//8)
 REPORTS = Path("reports")
 DATA = Path("data")
 
+
 def corr(X,Y):
     return np.mean(zscore(X)*zscore(Y),0)
 
@@ -353,10 +354,16 @@ def eval(feature_name, feature_file, sub, save_regressed_y = False):
 if __name__ == "__main__":
 
     allfeatures = [
-        'bert-base-lw-5.npy',
-        'bert-base-lw-rh-5.npy',
-        'bert-base-lw-rh-20.npy',
-        'bert-base-lw-4.npy',
+        #'bert-base-lw-5.npy',
+        #'bert-base-lw-rh-5.npy',
+        #'bert-base-lw-rh-20.npy',
+        #'bert-base-lw-4.npy',
+        "bert-base-lw-lag1_5.npy",
+        "bert-base-lw-lag5_2_5.npy",
+        "bert-base-lw-lag5_3_5.npy",
+        "bert-base-lw-rh-5_lag1.npy",
+        "bert-base-lw-rh-5_lag2.npy",
+        "bert-base-lw-rh-5_lag3.npy",
         ]
     
     args = parser.parse_args()

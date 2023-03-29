@@ -5,7 +5,33 @@ from statsmodels.stats.multitest import fdrcorrection
 REPORTS = Path("reports")
 
 all_subjects = [str(i) for i in range(1, 9)]
-all_single = ["bert", "glove", "postag", "deptags", "cm"]
+all_single = [
+    "bert",
+    "glove", 
+    "postag",
+    "deptags",
+    "cm",
+    "bertseq20rh", 
+    "bertseq5",
+    "bertseq1",
+    "bertseq2",
+    "bertseq3",
+    "bertseq4",
+    "bertseq5rh",
+    "bertseqlag1_5",
+    "bertseqlag5_2_5",
+    "bertseqlag5_3_5",
+    "bertseq5_lag1rh",
+    "bertseq5_lag2rh",
+    "bertseq5_lag3rh",
+    "bertseqres_5_1",
+    "bertseqres_5_2",
+    "bertseqres_5_3",
+    "bertseqres_5_1rh",
+    "bertseqres_5_2rh",
+    "bertseqres_5_3rh",
+    ]
+
 #all_pairs = [
 #        ("bert", "glove"),
 #        ("postag", "deptags"),
